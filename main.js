@@ -1085,6 +1085,11 @@ async function supportsAR() {
 
     const perTripTarget = getPerTripSampleTarget();
     const activeTripIds = new Set();
+    // Start hidden each pass; only current-window trips are shown.
+    for (const [, entry] of tripLineEntries) {
+        if (entry?.line) entry.line.visible = false;
+        if (entry?.shadow) entry.shadow.visible = false;
+    }
     for (const [tripId, pts] of allTrips) {
         if (!pts || pts.length < 2) continue;
         activeTripIds.add(tripId);
@@ -1135,6 +1140,8 @@ async function supportsAR() {
         updateFatLinePathway(entry.line, linePoints, pointColors);
         updateFatLinePathway(entry.shadow, shadowPoints, shadowColors);
         }
+        if (entry?.line) entry.line.visible = true;
+        if (entry?.shadow) entry.shadow.visible = true;
     }
 
     // Remove trips that are no longer present in current data.
