@@ -1,9 +1,9 @@
 
-import * as THREE from "three";
-import { Line2 } from "three/addons/lines/Line2.js";
-import { LineGeometry } from "three/addons/lines/LineGeometry.js";
-import { LineMaterial } from "three/addons/lines/LineMaterial.js";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import * as THREE from "https://unpkg.com/three@0.165.0/build/three.module.js";
+import { Line2 } from "https://unpkg.com/three@0.165.0/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "https://unpkg.com/three@0.165.0/examples/jsm/lines/LineGeometry.js";
+import { LineMaterial } from "https://unpkg.com/three@0.165.0/examples/jsm/lines/LineMaterial.js";
+import { mergeGeometries } from "https://unpkg.com/three@0.165.0/examples/jsm/utils/BufferGeometryUtils.js";
 
 // WebXR AR support check
 async function supportsAR() {
