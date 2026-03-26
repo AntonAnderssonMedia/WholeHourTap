@@ -746,6 +746,29 @@ async function supportsAR() {
     return line;
     }
 
+    function updateFatLinePathway(line, pathwayPoints, pointColors) {
+    if (!line || !line.geometry || !pathwayPoints || pathwayPoints.length < 2 || !pointColors) return false;
+    const positions = [];
+    const colors = [];
+    for (let i = 0; i < pathwayPoints.length; i++) {
+        const p = pathwayPoints[i];
+        positions.push(p.x, p.y, p.z);
+        const hex = pointColors[i] ?? 0x0088ff;
+        colors.push(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
+    }
+    line.geometry.setPositions(positions);
+    line.geometry.setColors(colors);
+    line.computeLineDistances();
+    line.visible = true;
+    return true;
+    }
+
+    function disposeLine2(line) {
+    if (!line) return;
+    if (line.geometry) line.geometry.dispose();
+    if (line.material) line.material.dispose();
+    }
+
     // Update LineMaterial resolution for all Line2 in a group (call on resize)
     function updateLineMaterialsResolution(group, renderer) {
     if (!group || !renderer) return;
@@ -792,6 +815,8 @@ async function supportsAR() {
     const tripMeta = new Map();
     let longestTripDurationMs = 0;
     let globalMaxSpeed = 0;
+    // Cache sampled index sets: key = "total:target"
+    const sampledIndicesCache = new Map();
 
     const H_MIN = 0.01;
     const H_LONGEST = 0.6; // meters: tallest endpoint (clock-mode reaches this at 21:00)
@@ -864,7 +889,7 @@ async function supportsAR() {
     for (const [tripId, pts] of allTrips) {
         if (!pts || pts.length < 2) continue;
         const target = Math.min(perTripTarget, pts.length);
-        const indices = getSampledIndices(pts.length, target);
+        const indices = getSampledIndicesCached(pts.length, target);
         for (const idx of indices) {
         const p = pts[idx];
         if (p?.tMs != null && !isWithinTimeWindow(p.tMs)) continue;
@@ -904,6 +929,7 @@ async function supportsAR() {
         allEvents.length = 0;
         globalMaxSpeed = 0;
         longestTripDurationMs = 0;
+        sampledIndicesCache.clear();
 
         for (const feature of geojson.features) {
         const props = feature.properties || {};
@@ -989,6 +1015,15 @@ async function supportsAR() {
     return [...indices].sort((a, b) => a - b);
     }
 
+    function getSampledIndicesCached(total, targetCount) {
+    const key = `${total}:${targetCount}`;
+    const cached = sampledIndicesCache.get(key);
+    if (cached) return cached;
+    const built = getSampledIndices(total, targetCount);
+    sampledIndicesCache.set(key, built);
+    return built;
+    }
+
     // Recreate event data points for the currently selected date (used for line + time labels)
     function rebuildEventMarkersForActiveDate() {
     // No-op for now: we draw all trips at once (not a single sampled trip).
@@ -1027,13 +1062,20 @@ async function supportsAR() {
         placedPlane.userData.timeLinesGroup = null;
     }
 
-    // Dispose previous children (e.g. trip line)
-    while (eventsGroup.children.length) {
-        const child = eventsGroup.children[0];
-        eventsGroup.remove(child);
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) child.material.dispose();
+    // Keep a dedicated subgroup for trip lines so we can reuse geometry between filter changes.
+    if (!placedPlane.userData.tripLinesGroup) {
+        const tripLinesGroup = new THREE.Group();
+        tripLinesGroup.name = "tripLinesGroup";
+        eventsGroup.add(tripLinesGroup);
+        placedPlane.userData.tripLinesGroup = tripLinesGroup;
     }
+    const tripLinesGroup = placedPlane.userData.tripLinesGroup;
+
+    // Persistent line objects keyed by trip id.
+    if (!placedPlane.userData.tripLineEntries) {
+        placedPlane.userData.tripLineEntries = new Map();
+    }
+    const tripLineEntries = placedPlane.userData.tripLineEntries;
 
     // All trips: draw each trip as a speed-colored Line2 (black when stopped, pink when moving),
     // and extend vertically based on travel time vs the longest trip (or absolute 20–21 clock).
@@ -1042,9 +1084,10 @@ async function supportsAR() {
     const maxSpeedForColors = globalMaxSpeed > 0 ? globalMaxSpeed : 1;
 
     const perTripTarget = getPerTripSampleTarget();
-    let tripIndex = 0;
+    const activeTripIds = new Set();
     for (const [tripId, pts] of allTrips) {
         if (!pts || pts.length < 2) continue;
+        activeTripIds.add(tripId);
 
         const linePoints = [];
         const pointColors = [];
@@ -1055,7 +1098,7 @@ async function supportsAR() {
         }
         if (filtered.length < 2) continue;
 
-        const indices = getSampledIndices(filtered.length, Math.min(perTripTarget, filtered.length));
+        const indices = getSampledIndicesCached(filtered.length, Math.min(perTripTarget, filtered.length));
         for (const idx of indices) {
             const p = filtered[idx];
             const h = computeTripPointHeight(tripId, p);
@@ -1063,22 +1106,49 @@ async function supportsAR() {
             pointColors.push(getTripSpeedColor(p.speed_value ?? 0, maxSpeedForColors));
         }
 
-        if (renderer && linePoints.length >= 2) {
-        const line = createFatLinePathway(linePoints, pointColors, lineWidth, eventsGroup, renderer, {
-            name: `tripLine_${tripIndex}_${tripId}`,
-            renderOrder: 0
-        });
-        if (line) line.userData.trip_id = tripId;
-        const shadowPoints = linePoints.map((p) => new THREE.Vector3(p.x, p.y, shadowOffset));
-        const shadowColors = pointColors.slice();
-        const shadow = createFatLinePathway(shadowPoints, shadowColors, lineWidth, eventsGroup, renderer, {
-            name: `tripShadow_${tripIndex}_${tripId}`,
-            renderOrder: -1
-        });
-        if (shadow) shadow.userData.trip_id = tripId;
+        if (!renderer) continue;
+        let entry = tripLineEntries.get(tripId);
+        const canRender = linePoints.length >= 2;
+        if (!canRender) {
+        if (entry?.line) entry.line.visible = false;
+        if (entry?.shadow) entry.shadow.visible = false;
+        continue;
         }
 
-        tripIndex++;
+        const shadowPoints = linePoints.map((p) => new THREE.Vector3(p.x, p.y, shadowOffset));
+        const shadowColors = pointColors;
+        if (!entry) {
+        const line = createFatLinePathway(linePoints, pointColors, lineWidth, tripLinesGroup, renderer, {
+            name: `tripLine_${tripId}`,
+            renderOrder: 0
+        });
+        const shadow = createFatLinePathway(shadowPoints, shadowColors, lineWidth, tripLinesGroup, renderer, {
+            name: `tripShadow_${tripId}`,
+            renderOrder: -1
+        });
+        if (!line || !shadow) continue;
+        line.userData.trip_id = tripId;
+        shadow.userData.trip_id = tripId;
+        entry = { line, shadow };
+        tripLineEntries.set(tripId, entry);
+        } else {
+        updateFatLinePathway(entry.line, linePoints, pointColors);
+        updateFatLinePathway(entry.shadow, shadowPoints, shadowColors);
+        }
+    }
+
+    // Remove trips that are no longer present in current data.
+    for (const [tripId, entry] of tripLineEntries) {
+        if (activeTripIds.has(tripId)) continue;
+        if (entry?.line) {
+        tripLinesGroup.remove(entry.line);
+        disposeLine2(entry.line);
+        }
+        if (entry?.shadow) {
+        tripLinesGroup.remove(entry.shadow);
+        disposeLine2(entry.shadow);
+        }
+        tripLineEntries.delete(tripId);
     }
 
     // Only timelines for first and last data point (start and end time)
@@ -1382,26 +1452,48 @@ async function supportsAR() {
     function applyTimeWindowFromInputs() {
     const s = timeWindowStartEl ? Number(timeWindowStartEl.value) : timeWindowStartMin;
     const e = timeWindowEndEl ? Number(timeWindowEndEl.value) : timeWindowEndMin;
-    timeWindowStartMin = Math.max(0, Math.min(60, Math.min(s, e)));
-    timeWindowEndMin = Math.max(0, Math.min(60, Math.max(s, e)));
+    const nextStartMin = Math.max(0, Math.min(60, Math.min(s, e)));
+    const nextEndMin = Math.max(0, Math.min(60, Math.max(s, e)));
+    const changed = nextStartMin !== timeWindowStartMin || nextEndMin !== timeWindowEndMin;
+    timeWindowStartMin = nextStartMin;
+    timeWindowEndMin = nextEndMin;
     if (timeWindowStartEl) timeWindowStartEl.value = String(timeWindowStartMin);
     if (timeWindowEndEl) timeWindowEndEl.value = String(timeWindowEndMin);
     applyTimeWindowLabels();
-    if (allTrips.size > 0) addTripsToPlane();
-    if (eventsLoaded) buildTapMarkersFromTrips();
+    return changed;
+    }
+
+    let timeWindowRebuildTimer = null;
+    const TIME_WINDOW_REBUILD_DEBOUNCE_MS = 80;
+    function scheduleTimeWindowRebuild(forceImmediate = false) {
+    if (timeWindowRebuildTimer) {
+        clearTimeout(timeWindowRebuildTimer);
+        timeWindowRebuildTimer = null;
+    }
+    const runRebuild = () => {
+        if (allTrips.size > 0) addTripsToPlane();
+        if (eventsLoaded) buildTapMarkersFromTrips();
+    };
+    if (forceImmediate) {
+        runRebuild();
+        return;
+    }
+    timeWindowRebuildTimer = setTimeout(runRebuild, TIME_WINDOW_REBUILD_DEBOUNCE_MS);
     }
 
     if (timeWindowStartEl) {
     ["input", "change"].forEach((evt) => timeWindowStartEl.addEventListener(evt, () => {
         blockNextSelect = true;
-        applyTimeWindowFromInputs();
+        const changed = applyTimeWindowFromInputs();
+        if (changed) scheduleTimeWindowRebuild(evt === "change");
     }));
     ["pointerdown", "mousedown", "touchstart"].forEach((evt) => timeWindowStartEl.addEventListener(evt, () => { blockNextSelect = true; }));
     }
     if (timeWindowEndEl) {
     ["input", "change"].forEach((evt) => timeWindowEndEl.addEventListener(evt, () => {
         blockNextSelect = true;
-        applyTimeWindowFromInputs();
+        const changed = applyTimeWindowFromInputs();
+        if (changed) scheduleTimeWindowRebuild(evt === "change");
     }));
     ["pointerdown", "mousedown", "touchstart"].forEach((evt) => timeWindowEndEl.addEventListener(evt, () => { blockNextSelect = true; }));
     }
