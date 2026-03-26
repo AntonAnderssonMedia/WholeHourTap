@@ -1,5 +1,7 @@
 # WholeHourTap
 
+[![Open Site](https://img.shields.io/badge/Live-Demo-blue)](https://antonanderssonmedia.github.io/WholeHourTap/)
+
 WebXR AR visualization that places a city map as a plane and renders **all bus trips within 20:00–21:00** as elevated 3D polylines. You can **tap a trip to highlight it** and filter what time-window is shown.
 
 ## What it does
