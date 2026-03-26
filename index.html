@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>AR Marker Detection + Map plane</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+
+    <!-- Tap capture for AR (fallback when WebXR select doesn't fire) -->
+    <div id="tap-capture" style="display: none;"></div>
+
+    <!-- Trip details on tap (placement mode OFF) -->
+    <div id="trip-details" class="trip-details"></div>
+
+    <!-- Points count toggle: first + last + sampled middle (steps of ~50) -->
+    <div id="event-date-filter" style="display: none;">
+      <button id="event-date-prev">◀</button>
+      <span id="event-date-label">—</span>
+      <button id="event-date-next">▶</button>
+    </div>
+
+    <!-- Time window filter (20:00–21:00) -->
+    <div id="time-window-filter" style="display: none;">
+      <div class="time-window-row">
+        <span class="time-window-label">From</span>
+        <input id="time-window-start" type="range" min="0" max="60" step="1" value="0" />
+        <span id="time-window-start-label" class="time-window-value">20:00</span>
+      </div>
+      <div class="time-window-row">
+        <span class="time-window-label">To</span>
+        <input id="time-window-end" type="range" min="0" max="60" step="1" value="60" />
+        <span id="time-window-end-label" class="time-window-value">21:00</span>
+      </div>
+    </div>
+
+    <!-- Visibility toggles: map surface and guide timelines (shown in AR) -->
+    <div id="visibility-toggles" style="display: none;">
+      <button id="toggle-map-surface" type="button" class="visibility-toggle" title="Map surface">Map</button>
+      <button id="toggle-guide-timelines" type="button" class="visibility-toggle" title="Guide timelines">Timelines</button>
+      <button id="toggle-roads" type="button" class="visibility-toggle" title="Road overlay">Roads</button>
+      <button id="toggle-height-mode" type="button" class="visibility-toggle" title="Height mapping mode">Height: Trip</button>
+    </div>
+    <button id="placement-toggle">Placement: ON</button>
+    <button id="enter-ar">Enter AR</button>
+    <div id="center-reticle"></div>
+
+    <!-- IF Unsupported browser/device -->
+    <div id="unsupported">
+      Your browser/ device does not support WebXR AR (`immersive-ar`).<br />
+      Try using Chrome on an Android device with ARCore support.
+    </div>
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+      }
+    }
+    </script>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
