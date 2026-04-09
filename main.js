@@ -66,7 +66,7 @@ async function supportsAR() {
     let eventsLoaded = false;
     let activeEventDate = null;
     // Per-trip sampling options: start/end only at 2, then progressively denser.
-    let pointsOptions = [2, 5, 10, 20, 50, 100, 200];
+    let pointsOptions = [2, 5, 10, 20, 50, 100, 200, 300, 400];
     let pointsToShowIndex = 0;
     const roadMeshes = [];
     let roadsLoaded = false;
@@ -115,9 +115,9 @@ async function supportsAR() {
     const MAP_HALF_X = MAP_WIDTH / 2;   // 1.59
     const MAP_HALF_Y = MAP_HEIGHT / 2;  // 1.18
 
-    // Fixed per-trip sampling options.
+    // Fixed per-trip sampling options (see getPerTripSampleTarget cap).
     function buildPointsOptions() {
-    return [2, 5, 10, 20, 50, 100, 200];
+    return [2, 5, 10, 20, 50, 100, 200, 300, 400];
     }
 
     // "extract" "HH:MM" from "YYYY/MM/DD HH:MM:SS.sss" (for labels)
@@ -870,9 +870,11 @@ async function supportsAR() {
     return lerp(H_MIN, hEnd, tNorm);
     }
 
+    /** Max samples per trip (each trip still uses at most its own point count). Raise only if target devices keep smooth AR. */
+    const MAX_SAMPLES_PER_TRIP = 400;
+
     function getPerTripSampleTarget() {
-    // Reuse points UI as a per-trip sampling control; keep bounded for performance.
-    return Math.max(2, Math.min(400, pointsOptions[pointsToShowIndex] ?? 20));
+    return Math.max(2, Math.min(MAX_SAMPLES_PER_TRIP, pointsOptions[pointsToShowIndex] ?? 20));
     }
 
     function buildTapMarkersFromTrips() {
@@ -1458,6 +1460,21 @@ async function supportsAR() {
     if (timeWindowEndEl) timeWindowEndEl.value = String(timeWindowEndMin);
     applyTimeWindowLabels();
 
+    function updateTimeWindowRangeFill(el) {
+    if (!el) return;
+    const min = Number(el.min);
+    const max = Number(el.max);
+    const val = Number(el.value);
+    const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
+    el.style.setProperty("--range-fill-pct", `${pct}%`);
+    }
+
+    function refreshTimeWindowRangeFills() {
+    updateTimeWindowRangeFill(timeWindowStartEl);
+    updateTimeWindowRangeFill(timeWindowEndEl);
+    }
+    refreshTimeWindowRangeFills();
+
     function applyTimeWindowFromInputs() {
     const s = timeWindowStartEl ? Number(timeWindowStartEl.value) : timeWindowStartMin;
     const e = timeWindowEndEl ? Number(timeWindowEndEl.value) : timeWindowEndMin;
@@ -1469,6 +1486,7 @@ async function supportsAR() {
     if (timeWindowStartEl) timeWindowStartEl.value = String(timeWindowStartMin);
     if (timeWindowEndEl) timeWindowEndEl.value = String(timeWindowEndMin);
     applyTimeWindowLabels();
+    refreshTimeWindowRangeFills();
     return changed;
     }
 
