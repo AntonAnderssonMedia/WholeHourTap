@@ -65,8 +65,8 @@ async function supportsAR() {
     const allEvents = [];
     let eventsLoaded = false;
     let activeEventDate = null;
-    // Points to show: first + last always, plus sampled middle. Built from data size, steps of 50.
-    let pointsOptions = [2, 810];
+    // Per-trip sampling options: start/end only at 2, then progressively denser.
+    let pointsOptions = [2, 5, 10, 20, 50, 100, 200];
     let pointsToShowIndex = 0;
     const roadMeshes = [];
     let roadsLoaded = false;
@@ -115,13 +115,9 @@ async function supportsAR() {
     const MAP_HALF_X = MAP_WIDTH / 2;   // 1.59
     const MAP_HALF_Y = MAP_HEIGHT / 2;  // 1.18
 
-    // Build point-count options for data size: 2, 52, 102, 152... step 50, then total.
-    function buildPointsOptions(total) {
-    if (total <= 2) return [2];
-    const opts = [2];
-    for (let n = 52; n < total; n += 50) opts.push(n);
-    opts.push(total);
-    return [...new Set(opts)].sort((a, b) => a - b);
+    // Fixed per-trip sampling options.
+    function buildPointsOptions() {
+    return [2, 5, 10, 20, 50, 100, 200];
     }
 
     // "extract" "HH:MM" from "YYYY/MM/DD HH:MM:SS.sss" (for labels)
@@ -710,10 +706,8 @@ async function supportsAR() {
     return lerpHex(TRIP_COLOR_STOPPED, TRIP_COLOR_BLUE, t);
     }
 
-    // Line2/LineGeometry/LineMaterial for pathway (adopted from threejs.org/examples webgl_lines_fat)
-    function createFatLinePathway(pathwayPoints, pointColors, lineWidth, parent, renderer, opts = {}) {
+    function buildLineGeometry(pathwayPoints, pointColors) {
     if (!pathwayPoints || pathwayPoints.length < 2 || !pointColors) return null;
-
     const positions = [];
     const colors = [];
 
@@ -726,6 +720,14 @@ async function supportsAR() {
     const geometry = new LineGeometry();
     geometry.setPositions(positions);
     geometry.setColors(colors);
+    return geometry;
+    }
+
+    // Line2/LineGeometry/LineMaterial for pathway (adopted from threejs.org/examples webgl_lines_fat)
+    function createFatLinePathway(pathwayPoints, pointColors, lineWidth, parent, renderer, opts = {}) {
+    const geometry = buildLineGeometry(pathwayPoints, pointColors);
+    if (!geometry) return null;
+
     const resolution = new THREE.Vector2();
     renderer.getSize(resolution);
     const matLine = new LineMaterial({
@@ -747,17 +749,11 @@ async function supportsAR() {
     }
 
     function updateFatLinePathway(line, pathwayPoints, pointColors) {
-    if (!line || !line.geometry || !pathwayPoints || pathwayPoints.length < 2 || !pointColors) return false;
-    const positions = [];
-    const colors = [];
-    for (let i = 0; i < pathwayPoints.length; i++) {
-        const p = pathwayPoints[i];
-        positions.push(p.x, p.y, p.z);
-        const hex = pointColors[i] ?? 0x0088ff;
-        colors.push(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
-    }
-    line.geometry.setPositions(positions);
-    line.geometry.setColors(colors);
+    if (!line || !line.geometry) return false;
+    const nextGeometry = buildLineGeometry(pathwayPoints, pointColors);
+    if (!nextGeometry) return false;
+    line.geometry.dispose();
+    line.geometry = nextGeometry;
     line.computeLineDistances();
     line.visible = true;
     return true;
@@ -876,7 +872,7 @@ async function supportsAR() {
 
     function getPerTripSampleTarget() {
     // Reuse points UI as a per-trip sampling control; keep bounded for performance.
-    return Math.max(2, Math.min(400, pointsOptions[pointsToShowIndex] ?? 102));
+    return Math.max(2, Math.min(400, pointsOptions[pointsToShowIndex] ?? 20));
     }
 
     function buildTapMarkersFromTrips() {
@@ -992,7 +988,7 @@ async function supportsAR() {
 
         eventsLoaded = true;
         activeEventDate = "trip";
-        pointsOptions = buildPointsOptions(allEvents.length);
+        pointsOptions = buildPointsOptions();
         pointsToShowIndex = Math.min(2, pointsOptions.length - 1);
         populatePointsFilter();
 
@@ -1007,12 +1003,18 @@ async function supportsAR() {
     function getSampledIndices(total, targetCount) {
     if (targetCount >= total) return [...Array(total).keys()];
     if (targetCount <= 2) return [0, total - 1];
-    const indices = new Set([0, total - 1]);
-    for (let i = 1; i < targetCount - 1; i++) {
-        const t = i / (targetCount - 1);
-        indices.add(Math.round(t * (total - 1)));
+    // Build exactly targetCount monotonic unique indices from 0..total-1.
+    // Clamp each point between:
+    // - minIdx: ensures enough room for previous picks
+    // - maxIdx: ensures enough room for remaining picks
+    const indices = new Array(targetCount);
+    for (let i = 0; i < targetCount; i++) {
+        const ideal = Math.round((i * (total - 1)) / (targetCount - 1));
+        const minIdx = i;
+        const maxIdx = total - targetCount + i;
+        indices[i] = Math.min(maxIdx, Math.max(minIdx, ideal));
     }
-    return [...indices].sort((a, b) => a - b);
+    return indices;
     }
 
     function getSampledIndicesCached(total, targetCount) {
@@ -1521,9 +1523,8 @@ async function supportsAR() {
     function updatePointsLabel() {
     const labelEl = document.getElementById("event-date-label");
     if (!labelEl) return;
-    const count = pointsOptions[pointsToShowIndex] ?? pointsOptions[pointsOptions.length - 1];
-    const total = allEvents.length;
-    labelEl.textContent = total ? `${count} / ${total} pts` : "—";
+    const count = getPerTripSampleTarget();
+    labelEl.textContent = `${count} samples/trip`;
     }
 
     function populatePointsFilter() {
