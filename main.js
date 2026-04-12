@@ -425,6 +425,16 @@ async function supportsAR() {
 
     xrSession.addEventListener("select", onSelect);
 
+    function clearTapMarker() {
+        const eventsGroup = placedPlane?.userData?.eventsGroup;
+        if (tapMarkerMesh) {
+            if (eventsGroup) eventsGroup.remove(tapMarkerMesh);
+            tapMarkerMesh.geometry.dispose();
+            tapMarkerMesh.material.dispose();
+            tapMarkerMesh = null;
+        }
+    }
+
     // Fallback: some devices don't fire WebXR select; use click/touch when placement OFF
     function runTapToInspect() {
         if (!placedPlane || placementMode || !lastViewerPosition || !lastViewerQuaternion) return;
@@ -445,6 +455,7 @@ async function supportsAR() {
             highlightedTripId = null;
             applyTripHighlight();
             showTripDetails(null);
+            clearTapMarker();
             return;
         }
 
@@ -458,12 +469,7 @@ async function supportsAR() {
 
         // Update tap marker
         if (eventsGroup) {
-            if (tapMarkerMesh) {
-                eventsGroup.remove(tapMarkerMesh);
-                tapMarkerMesh.geometry.dispose();
-                tapMarkerMesh.material.dispose();
-                tapMarkerMesh = null;
-            }
+            clearTapMarker();
             if (hitPoint) {
                 const inv = new THREE.Matrix4().copy(placedPlane.matrixWorld).invert();
                 const hitLocal = hitPoint.clone().applyMatrix4(inv);
