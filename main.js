@@ -66,8 +66,9 @@ async function supportsAR() {
     let eventsLoaded = false;
     let activeEventDate = null;
     // Per-trip sampling options: start/end only at 2, then progressively denser.
+    const DEFAULT_SAMPLES_PER_TRIP = 100;
     let pointsOptions = [2, 5, 10, 20, 50, 100, 200, 300, 400];
-    let pointsToShowIndex = 0;
+    let pointsToShowIndex = Math.max(0, pointsOptions.indexOf(DEFAULT_SAMPLES_PER_TRIP));
     const roadMeshes = [];
     let roadsLoaded = false;
 
@@ -880,7 +881,7 @@ async function supportsAR() {
     const MAX_SAMPLES_PER_TRIP = 400;
 
     function getPerTripSampleTarget() {
-    return Math.max(2, Math.min(MAX_SAMPLES_PER_TRIP, pointsOptions[pointsToShowIndex] ?? 20));
+    return Math.max(2, Math.min(MAX_SAMPLES_PER_TRIP, pointsOptions[pointsToShowIndex] ?? DEFAULT_SAMPLES_PER_TRIP));
     }
 
     function buildTapMarkersFromTrips() {
@@ -997,7 +998,8 @@ async function supportsAR() {
         eventsLoaded = true;
         activeEventDate = "trip";
         pointsOptions = buildPointsOptions();
-        pointsToShowIndex = Math.min(2, pointsOptions.length - 1);
+        pointsToShowIndex = Math.max(0, pointsOptions.indexOf(DEFAULT_SAMPLES_PER_TRIP));
+        if (pointsToShowIndex < 0) pointsToShowIndex = 0;
         populatePointsFilter();
 
         buildTapMarkersFromTrips();
